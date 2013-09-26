@@ -39,16 +39,13 @@ task generateDocsReal << {
 generateDocs.dependsOn generateNewSource
 
 def genSource(){
-  pub.isGenerate = true;
-  pub.noArchive = true;
-  pub.web = false;
   pub.registerReferencePlatforms();
 
   pub.initialize(folder)
   def page = pub.page
   String destDir = page.folders.dstDir;
 
-  pub.prsr.parse(page.getGenDate(), page.getVersion());
+  pub.prsr.parse(page.genDate, page.version);
   pub.defineSpecialValues();
   pub.validate()
 
@@ -66,8 +63,7 @@ def genSource(){
       gen.generate(page.definitions, destDir, implDir, page.version, page.genDate.time, page, page.svnRevision);
     else
       gen.generate(eCoreDefs, destDir, implDir, page);
-    
-    if(gen.name == "java") gen.compile(page.folders.rootDir, [])
   }
+
 }
  
