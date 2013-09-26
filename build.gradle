@@ -23,26 +23,19 @@ task generateNewSource << {
 }
 
 
-task makeNewBuild(type: Copy) {
-  println("Making new build")
-  from 'buildSrc/newbt/BuildTool.java'
-  into 'buildSrc/src/main/java/'
-}
-
-task putBuildBack(type: Copy)  {
-  println("putting back new build")
-  from 'buildSrc/oldbt/BuildTool.java'
-  into 'buildSrc/src/main/java/'
-}
-
 task generateDocs(type: GradleBuild) {
   buildFile='build.gradle'
+  def args = new StartParameter()
+  args.setProjectProperties(fhirBuildDir: fhirBuildDir)
   tasks = ['generateDocsReal']
+  startParameter args
 }
 
 task generateDocsReal << {
   new BuildTool("In gendocs")
 }
+
+generateDocs.dependsOn generateNewSource
 
 def genSource(){
   pub.isGenerate = true;
@@ -77,7 +70,3 @@ def genSource(){
   }
 }
  
-makeNewBuild.dependsOn generateNewSource
-generateDocs.dependsOn makeNewBuild
-
-putBuildBack.dependsOn generateDocsReal
