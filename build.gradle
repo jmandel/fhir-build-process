@@ -1,0 +1,83 @@
+import org.eclipse.emf.ecore.xmi.impl.XMIResourceImpl
+import org.hl7.fhir.utilities.CSFileInputStream
+import org.hl7.fhir.tools.publisher.Publisher
+
+ext {
+  folder = fhirBuildDir
+  pub = new Publisher();
+}
+
+
+task generateNewSource << {
+  println("tracer top build")
+  genSource()
+
+  ant.copy(todir: new File(projectDir, "/buildSrc/src/main/java/org/hl7/fhir/instance/")) {
+    fileset(dir:folder+"/implementations/java/org.hl7.fhir.instance/src/org/hl7/fhir/instance") {
+            exclude(name: "**/client/")
+            exclude(name: "**/test/FHIR*")
+    }
+
+  }
+  println("Executed!")
+}
+
+
+task makeNewBuild(type: Copy) {
+  println("Making new build")
+  from 'buildSrc/newbt/BuildTool.java'
+  into 'buildSrc/src/main/java/'
+}
+
+task putBuildBack(type: Copy)  {
+  println("putting back new build")
+  from 'buildSrc/oldbt/BuildTool.java'
+  into 'buildSrc/src/main/java/'
+}
+
+task generateDocs(type: GradleBuild) {
+  buildFile='build.gradle'
+  tasks = ['generateDocsReal']
+}
+
+task generateDocsReal << {
+  new BuildTool("In gendocs")
+}
+
+def genSource(){
+  pub.isGenerate = true;
+  pub.noArchive = true;
+  pub.web = false;
+  pub.registerReferencePlatforms();
+
+  pub.initialize(folder)
+  def page = pub.page
+  String destDir = page.folders.dstDir;
+
+  pub.prsr.parse(page.getGenDate(), page.getVersion());
+  pub.defineSpecialValues();
+  pub.validate()
+
+  def eCorePath = pub.page.folders.dstDir + "ECoreDefinitions.xml";
+  pub.generateECore(pub.prsr.eCoreParseResults, eCorePath);
+
+  def resource = new XMIResourceImpl();
+  resource.load(new CSFileInputStream(eCorePath), null)
+  def eCoreDefs = resource.contents[0]
+
+  for (def gen : page.referenceImplementations) {
+    println("Produce " + gen.name + " Reference Implementation");
+    String implDir = page.folders.implDir(gen.name);
+    if (!gen.isECoreGenerator())
+      gen.generate(page.definitions, destDir, implDir, page.version, page.genDate.time, page, page.svnRevision);
+    else
+      gen.generate(eCoreDefs, destDir, implDir, page);
+    
+    if(gen.name == "java") gen.compile(page.folders.rootDir, [])
+  }
+}
+ 
+makeNewBuild.dependsOn generateNewSource
+generateDocs.dependsOn makeNewBuild
+
+putBuildBack.dependsOn generateDocsReal

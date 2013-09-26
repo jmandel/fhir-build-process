@@ -1,0 +1,9 @@
+*.class
+target
+.classpath
+.settings
+.project
+build
+.gradle
+*.swp
+*.swo
