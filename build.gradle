@@ -25,10 +25,11 @@ task generateNewSource << {
 
 task generateDocs(type: GradleBuild) {
   buildFile='build.gradle'
-  def args = new StartParameter()
-  args.setProjectProperties(fhirBuildDir: fhirBuildDir)
   tasks = ['generateDocsReal']
-  startParameter args
+
+  def props = project.gradle.startParameter.newBuild()
+  props.projectProperties = project.gradle.startParameter.projectProperties
+  startParameter = props
 }
 
 task generateDocsReal << {
