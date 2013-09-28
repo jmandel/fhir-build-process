@@ -225,7 +225,7 @@ public class Publisher {
   private SourceParser prsr;
 	private PageProcessor page = new PageProcessor();
 	private BookMaker book;
-  private JavaGenerator javaReferencePlatform;
+  private JavaGenerator javaReferencePlatform = new JavaGenerator();
 
   private long revNumber;
 	private boolean isGenerate;
@@ -461,7 +461,6 @@ public class Publisher {
     TextFile.stringToFile(head+Utilities.escapeXml(json)+tail, page.getFolders().dstDir + "conformance-base.json.htm");
     
     Utilities.copyFile(new CSFile(page.getFolders().dstDir + "conformance-base.xml"), new CSFile(page.getFolders().dstDir+ "examples" + File.separator + "conformance-base.xml"));
-    if (buildFlags.get("all"))
       addToResourceFeed(conf, "conformance-base", profileFeed);
   }
 
@@ -571,7 +570,6 @@ public class Publisher {
 	}
 
 	private void registerReferencePlatforms() {
-		javaReferencePlatform = new JavaGenerator();
     page.getReferenceImplementations().add(javaReferencePlatform);
 		page.getReferenceImplementations().add(new CSharpGenerator());
     page.getReferenceImplementations().add(new DelphiGenerator());
@@ -1436,7 +1434,6 @@ public class Publisher {
     String src = TextFile.fileToString(page.getFolders().srcDir+ "v3"+File.separator+"template.htm");
     TextFile.stringToFile(addSectionNumbers("terminologies-v3.htm", "terminologies-v3", page.processPageIncludes("v3/template.htm", src, "page")), page.getFolders().dstDir+"terminologies-v3.htm");
     src = TextFile.fileToString(page.getFolders().srcDir+ "v3"+File.separator+"template.htm");
-    cachePage("terminologies-v3.htm", page.processPageIncludesForBook("v3/template.htm", src, "page"));
     IniFile ini = new IniFile(page.getFolders().srcDir + "v3"+File.separator+"valuesets.ini");
     
     Element e = XMLUtil.getFirstChild(page.getV3src().getDocumentElement());
@@ -1667,7 +1664,6 @@ public class Publisher {
     String src = TextFile.fileToString(page.getFolders().srcDir+ "v2"+File.separator+"template.htm");
     TextFile.stringToFile(addSectionNumbers("terminologies-v2.htm", "terminologies-v2", page.processPageIncludes("v2/template.htm", src, "v2Vocab")), page.getFolders().dstDir + "terminologies-v2.htm");
     src = TextFile.fileToString(page.getFolders().srcDir+ "v2"+File.separator+"template.htm");
-    cachePage("terminologies-v2.htm", page.processPageIncludesForBook("v2/template.htm", src, "v2Vocab"));
     
     Element e = XMLUtil.getFirstChild(page.getV2src().getDocumentElement());
     while (e != null) {
@@ -1704,18 +1700,22 @@ public class Publisher {
         
   }
 
-  private boolean wantBuild(String rname) {
+  public boolean wantBuild(String rname) {
     rname = rname.toLowerCase();
     return buildFlags.get("all") || (!buildFlags.containsKey(rname) || buildFlags.get(rname));
   }
 
-  private void produceBaseProfile() throws Exception {
+  public void produceBaseProfile() throws Exception {
+    System.out.println("Types");
     for (ElementDefn e : page.getDefinitions().getTypes().values())
       produceTypeProfile(e);
+    System.out.println("infrastructure");
     for (ElementDefn e : page.getDefinitions().getInfrastructure().values())
       produceTypeProfile(e);
+    System.out.println("structures");
     for (ElementDefn e : page.getDefinitions().getStructures().values())
       produceTypeProfile(e);
+    System.out.println("constraints");
     for (DefinedCode c : page.getDefinitions().getConstraints().values())
       produceProfiledTypeProfile(c);
   }
@@ -1757,6 +1757,7 @@ public class Publisher {
     p.getElements().add(type);
     ProfileGenerator pgen = new ProfileGenerator(page.getDefinitions());
     String fn = "type-"+type.getName()+".profile.xml";
+    System.out.println("Writing " + fn);
     Profile rp = pgen.generate(p, "<div>Type definition for "+type.getName()+" from <a href=\"http://hl7.org/fhir/datatypes.htm#"+type.getName()+"\">FHIR Specification</a></div>", false);
     new XmlComposer().compose(new FileOutputStream(page.getFolders().dstDir + fn), rp, true, false);
     new JsonComposer().compose(new FileOutputStream(page.getFolders().dstDir + Utilities.changeFileExt(fn, ".json")), rp, false);
@@ -1851,7 +1852,7 @@ public class Publisher {
 		Utilities.copyFile(new CSFile(page.getFolders().tmpResDir + "fhir-all-xsd.zip"), f);
 	}
 
-  private void produceResource1(ResourceDefn resource) throws Exception {
+  public void produceResource1(ResourceDefn resource) throws Exception {
     File tmp = File.createTempFile("tmp", ".tmp");
     tmp.deleteOnExit();
     String n = resource.getName().toLowerCase();
@@ -1865,7 +1866,7 @@ public class Publisher {
     generateProfile(resource, n, xml, true);
   }
   
-  private void produceResource2(ResourceDefn resource) throws Exception {
+  public void produceResource2(ResourceDefn resource) throws Exception {
 	  File tmp = File.createTempFile("tmp", ".tmp");
 	  tmp.deleteOnExit();
 	  String n = resource.getName().toLowerCase();
@@ -1893,12 +1894,7 @@ public class Publisher {
 		  p.setResource(produceProfile(p.getFilename(), p.getProfile(), p.getExamplePath(), p.getExample()));
 
 	  for (Example e : resource.getExamples()) {
-		  try {
 			  processExample(e, resource);
-		  } catch (Exception ex) {
-			  throw new Exception("processing "+e.getFileTitle(), ex);
-			  //		    throw new Exception(ex.getMessage()+" processing "+e.getFileTitle());
-		  }
 	  }
 
     String prefix = page.getBreadCrumbManager().getIndexPrefixForResource(resource.getName());
@@ -1929,14 +1925,10 @@ public class Publisher {
 
 		src = TextFile.fileToString(page.getFolders().srcDir + "template-book.htm").replace("<body>", "<body style=\"margin: 10px\">");
 		src = page.processResourceIncludes(n, resource, xml, tx, dict, src, mappings, mappingsList, "resource");
-		cachePage(n + ".htm", src);
 		src = TextFile.fileToString(page.getFolders().srcDir + "template-book-ex.htm").replace("<body>", "<body style=\"margin: 10px\">");
 		src = page.processResourceIncludes(n, resource, xml, tx, dict, src, mappings, mappingsList, "res-Examples");
-		cachePage(n + "Ex.htm", src);
 		src = TextFile.fileToString(page.getFolders().srcDir + "template-book-defn.htm").replace("<body>", "<body style=\"margin: 10px\">");
 		src = page.processResourceIncludes(n, resource, xml, tx, dict, src, mappings, mappingsList, "res-Formal Definitions");
-		cachePage(n + "-definitions.htm", src);
-		cachePage(n + "Defn.htm", src);
 
 		// xml to json
 		// todo - fix this up
@@ -2010,14 +2002,7 @@ public class Publisher {
     
     String json;
 		// generate the json version (use the java reference platform)
-    try {
       json = javaReferencePlatform.convertToJson(page.getFolders().dstDir, page.getFolders().dstDir + n + ".xml", page.getFolders().dstDir + n + ".json");
-    } catch (Throwable t) {
-      System.out.println("Error processing "+page.getFolders().dstDir + n + ".xml");
-      t.printStackTrace(System.err);
-      TextFile.stringToFile(t.getMessage(), page.getFolders().dstDir + n + ".json");
-      json = t.getMessage();
-    }
     
     String head = 
     "<html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"en\">\r\n<head>\r\n <title>"+Utilities.escapeXml(e.getDescription())+"</title>\r\n <link rel=\"Stylesheet\" href=\"fhir.css\" type=\"text/css\" media=\"screen\"/>\r\n"+
@@ -2067,8 +2052,6 @@ public class Publisher {
     new JsonComposer().compose(new FileOutputStream(page.getFolders().dstDir + n + ".profile.json"), rp, false);
 
     Utilities.copyFile(new CSFile(page.getFolders().dstDir + n+ ".profile.xml"), new CSFile(page.getFolders().dstDir+ "examples" + File.separator + n + ".profile.xml"));
-		if (buildFlags.get("all"))
-		  addToResourceFeed(rp, root.getName().toLowerCase(), profileFeed);
 		saveAsPureHtml(rp, new FileOutputStream(page.getFolders().dstDir+ "html" + File.separator + n + ".htm"));
     cloneToXhtml(n+".profile", "Profile for "+n, true);
     jsonToXhtml(n+".profile", "Profile for "+n, resource2Json(rp));
@@ -2223,7 +2206,7 @@ public class Publisher {
 		String src = TextFile.fileToString(page.getFolders().srcDir
 				+ "template-profile.htm");
 		src = page.processProfileIncludes(filename, profile, xml, tx, src, exXml, intro, notes);
-		book.getPages().put(filename+".htm", new XhtmlParser().parse(src, "html"));
+		//book.getPages().put(filename+".htm", new XhtmlParser().parse(src, "html"));
 		TextFile.stringToFile(src, page.getFolders().dstDir + filename + ".htm");
 		//
 		// src = Utilities.fileToString(page.getFolders().srcDir +
@@ -2269,7 +2252,10 @@ public class Publisher {
 
 	private void validateProfile(ProfileDefn profile)
 			throws FileNotFoundException, Exception {
+		  System.out.println("validating");
 		for (ResourceDefn c : profile.getResources()) {
+
+		  System.out.println("** Loading profile piece for " + c.getName());
 			Profile resource = loadResourceProfile(c.getName());
 			ProfileValidator v = new ProfileValidator();
 			v.setCandidate(c);
@@ -2311,7 +2297,6 @@ public class Publisher {
 
 		src = TextFile.fileToString(page.getFolders().srcDir + file).replace("<body>", "<body style=\"margin: 10px\">");
 		src = page.processPageIncludesForBook(file, src, "page");
-		cachePage(file, src);
 	}
 
   private String addSectionNumbers(String file, String logicalName, String src) throws Exception {
@@ -2348,7 +2333,6 @@ public class Publisher {
 
     src = TextFile.fileToString(page.getFolders().srcDir + "template-compartment.htm").replace("<body>", "<body style=\"margin: 10px\">");
     src = page.processPageIncludesForBook(file, src, "compartment");
-    cachePage(file, src);
   }
 
 	private String insertSectionNumbers(String src, SectionTracker st, String link) throws Exception  {
@@ -2808,7 +2792,6 @@ public class Publisher {
       
       TextFile.stringToFile(page.processPageIncludes(title+".htm", TextFile.fileToString(page.getFolders().srcDir+"template-vs.htm"), "valueSet"), page.getFolders().dstDir+name+".htm");
       String src = page.processPageIncludesForBook(title+".htm", TextFile.fileToString(page.getFolders().srcDir+"template-vs-book.htm"), "valueSet");
-      cachePage(name+".htm", src);
 
       JsonComposer json = new JsonComposer();
       json.compose(new FileOutputStream(page.getFolders().dstDir+name+".json"), vs, false);
@@ -2910,7 +2893,6 @@ public class Publisher {
 
       TextFile.stringToFile(page.processPageIncludes(filename, TextFile.fileToString(page.getFolders().srcDir+"template-tx.htm"), "codeSystem"), page.getFolders().dstDir+filename);
       String src = page.processPageIncludesForBook(filename, TextFile.fileToString(page.getFolders().srcDir+"template-tx-book.htm"), "codeSystem");
-      cachePage(filename, src);
 
 
       JsonComposer json = new JsonComposer();

@@ -268,11 +268,9 @@ public class Definitions {
   private List<String> sortedNames;
   
   public List<String> sortedResourceNames() {
-    if (sortedNames == null) {
       sortedNames = new ArrayList<String>();
       sortedNames.addAll(getResources().keySet());
       Collections.sort(sortedNames);
-    }
     return sortedNames;
   }
 
