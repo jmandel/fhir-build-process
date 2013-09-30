@@ -1,27 +1,27 @@
 import org.eclipse.emf.ecore.xmi.impl.XMIResourceImpl
-import org.hl7.fhir.utilities.CSFileInputStream
 import org.hl7.fhir.tools.publisher.Publisher
 import org.hl7.fhir.instance.model.AtomFeed
 import org.hl7.fhir.definitions.model.ResourceDefn
 import org.hl7.fhir.tools.publisher.Navigation
+import org.hl7.fhir.utilities.CSFileInputStream
 
-/*
-import static groovyx.gpars.GParsPool
 
-apply plugin: 'groovy'
-repositories {
-  mavenRepo url: "http://repo.maven.apache.org/maven2"
+buildscript  {
+  repositories {
+    mavenCentral()
+  }
+  dependencies {
+    classpath group: 'org.codehaus.gpars', name: 'gpars', version: '1.1.0'
+  }
 }
 
-dependencies {
-  compile 'org.codehaus.gpars:gpars:1.1.0'
-}
-*/
+import groovyx.gpars.GParsPool
 
 ext {
   folder = fhirBuildDir
   pub = new Publisher();
   page = null;
+  destDir = ""
 }
 
 task generateNewSource << {
@@ -80,7 +80,7 @@ AtomFeed makeFeed(String idSlug, String selfSlug, String title) {
   def feed = new AtomFeed();
   feed.setId("http://hl7.org/fhir/profile/$idSlug");
   feed.setTitle(title);
-  feed.get["self"] = "http://hl7.org/implement/standards/fhir/$selfSlug.xml");
+  feed.links["self"] = "http://hl7.org/implement/standards/fhir/${selfSlug}.xml";
   feed.setUpdated(Calendar.instance);
   return feed
 }
@@ -88,7 +88,7 @@ AtomFeed makeFeed(String idSlug, String selfSlug, String title) {
 def preparePub(){
   pub.initialize(folder)
   page = pub.page
-  String destDir = pub.page.folders.dstDir;
+  destDir = pub.page.folders.dstDir;
  
   page.breadCrumbManager.parse(page.folders.srcDir+"heirarchy.xml");
   pub.prsr.parse(pub.page.genDate, pub.page.version);
@@ -98,19 +98,19 @@ def preparePub(){
   page.navigation.parse(page.folders.srcDir + "navigation.xml");
 
   pub.profileFeed = makeFeed(
-        idSlug: "resources",
-        selfSlug: "profiles-resources",
-        title: "Resources as Profiles")
+        "resources",
+        "profiles-resources",
+        "Resources as Profiles")
 
   pub.typeFeed = makeFeed(
-        idSlug: "types",
-        selfSlug: "profiles-types",
-        title: "Resources as Profiles")
+        "types",
+        "profiles-types",
+        "Resources as Profiles")
 
   pub.valueSetsFeed = makeFeed(
-        idSlug: "valuesets",
-        selfSlug: "valuesets",
-        title: "FHIR Core Valuesets")
+        "valuesets",
+        "valuesets",
+        "FHIR Core Valuesets")
 
   pub.loadValueSets()
  
@@ -131,16 +131,22 @@ def resources(){
     page.definitions.resources[it]
   }
 
-//  GParsPool.withPool {
-    rNames.each{ r -> //Parallel { r -> 
+
+  def t0 = new Date().getTime()
+  GParsPool.withPool 2, {
+    rNames.each { r -> 
       println ("R1 resource: $r.name")
       pub.produceResource1(r);      
     }
-//  }
-  pub.produceBaseProfile()
-  rNames.each{ r ->
-      println ("R2 resource: $r.name")
-      pub.produceResource2(r);      
-    }
+  }
 
+  pub.produceBaseProfile()
+  GParsPool.withPool 2, {
+    rNames.eachParallel { r -> 
+	println ("R2 resource: $r.name")
+	pub.produceResource2(r);      
+    }
+  }
+  def t1 = new Date().getTime()
+  println("deltat: " + (t1-t0))
 }
