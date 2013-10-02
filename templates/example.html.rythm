@@ -1,0 +1,16 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+ <title>Example Instance for @resource</title>
+ <link rel="stylesheet" href="fhir.css" type="text/css" media="screen"/>
+ <script src="https://google-code-prettify.googlecode.com/svn/loader/run_prettify.js"></script>
+</head>
+<body>
+<div class="example">
+<p>General @resource Example (id = @exampleId)</p>
+<p><a href="@resource-example-@(exampleId).xml">Raw XML</a></p>
+<pre class="prettyprint xml-example">@escape("html"){@xml}</pre>
+<pre class="prettyprint json-example">@escape("html"){@json}</pre>
+</div>
+</body>
+</html>
+

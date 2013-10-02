@@ -26,30 +26,14 @@ import org.gradle.api.tasks.TaskAction
 import groovyx.gpars.GParsPool
 import org.rythmengine.Rythm
 
-
-Rythm.init(["home.template": project.file("templates")]);
-println Rythm.render("hello-world.html.rythm", [who:"rythmatic",are:"user"])
+Rythm.init(["home.template": project.file("templates")])
 
 ext {
   fhirBuildDir = fhirBuildDir
+  destDir = fhirBuildDir + "/publish"
   pub = new Publisher()
   page = null
-  destDir = ""
 }
-
-def serializeJson(r) {
-    ByteArrayOutputStream jsonStream = new ByteArrayOutputStream()
-    new JsonComposer().compose(jsonStream, r, true)
-    jsonStream.toString()
-}
-
-
-def serializeXml(r) {
-    ByteArrayOutputStream xmlStream = new ByteArrayOutputStream()
-    new XmlComposer().compose(xmlStream, r, true)
-    xmlStream.toString()
-}
-
 class ResourceTask extends DefaultTask {
     def resource = null
     def getSourceDir() {"$project.fhirBuildDir/source/${resource.name.toLowerCase()}"}
@@ -75,6 +59,10 @@ class ExampleTask extends DefaultTask {
 
     def getInstance(){
        parseXml(new FileInputStream(example.path))
+    }
+
+    def getOutputFileBase(){
+      project.destDir+"/"+example.fileTitle
     }
 
     @InputFile def getResourceDir(){
@@ -115,7 +103,6 @@ def createTasks() {
 }
 
 task generateNewSource << {
-  println("tracer top build")
   generateSource()
   ant.copy(todir: new File(projectDir, "/buildSrc/src/main/java/org/hl7/fhir/instance/")) {
     fileset(dir:fhirBuildDir+"/implementations/java/org.hl7.fhir.instance/src/org/hl7/fhir/instance") {
@@ -123,24 +110,19 @@ task generateNewSource << {
             exclude(name: "**/test/FHIR*") }
 
   }
-  println("Executed!")
+  println("Rebuilt client source.")
 }
 
-
-task generateDocs(type: GradleBuild) {
+task buildAndPublish(type: GradleBuild) {
   buildFile='build.gradle'
-  tasks = ['generateDocsReal']
+  tasks = ['publish']
 
   def props = project.gradle.startParameter.newBuild()
   props.projectProperties = project.gradle.startParameter.projectProperties
   startParameter = props
 }
 
-task generateDocsReal << {
-  new BuildTool("In gendocs")
-}
-
-generateDocs.dependsOn generateNewSource
+buildAndPublish.dependsOn generateNewSource
 
 def generateSource(){
   pub.registerReferencePlatforms();
@@ -154,52 +136,19 @@ def generateSource(){
   for (def gen : page.referenceImplementations) {
     println("Produce " + gen.name + " Reference Implementation");
     String implDir = page.folders.implDir(gen.name);
-    if (!gen.isECoreGenerator())
-      gen.generate(page.definitions, destDir, implDir, page.version, page.genDate.time, page, page.svnRevision);
-    else
+    if (!gen.isECoreGenerator()) {
+      gen.generate(
+        page.definitions,
+        destDir, 
+        implDir,
+        page.version,
+        page.genDate.time,
+        page,
+        page.svnRevision);
+    } else {
       gen.generate(eCoreDefs, destDir, implDir, page);
+    }
   }
-}
-
-AtomFeed makeFeed(String idSlug, String selfSlug, String title) {
-  def feed = new AtomFeed();
-  feed.setId("http://hl7.org/fhir/profile/$idSlug");
-  feed.setTitle(title);
-  feed.links["self"] = "http://hl7.org/implement/standards/fhir/${selfSlug}.xml";
-  feed.setUpdated(Calendar.instance);
-  return feed
-}
-
-def preparePub(){
-  pub.initialize(fhirBuildDir)
-  page = pub.page
-  destDir = pub.page.folders.dstDir;
- 
-  page.breadCrumbManager.parse(page.folders.srcDir+"heirarchy.xml");
-  pub.prsr.parse(pub.page.genDate, pub.page.version);
-  pub.defineSpecialValues();
-  pub.validate()
-  page.navigation = new Navigation();
-  page.navigation.parse(page.folders.srcDir + "navigation.xml");
-
-  pub.profileFeed = makeFeed(
-        "resources",
-        "profiles-resources",
-        "Resources as Profiles")
-
-  pub.typeFeed = makeFeed(
-        "types",
-        "profiles-types",
-        "Resources as Profiles")
-
-  pub.valueSetsFeed = makeFeed(
-        "valuesets",
-        "valuesets",
-        "FHIR Core Valuesets")
-
-  pub.loadValueSets()
-  page.metaClass.resources = page.definitions.resources.collect {k,v->v}
-  return pub
 }
 
 task generateResources << {
@@ -207,34 +156,38 @@ task generateResources << {
     resources()
 }
 
-
+def writeFile(fileName, contents){
+  PrintWriter out 
+  out = new PrintWriter(fileName)
+  out.print(contents)
+  out.close()
+}
 
 task generateExamples << {
 
-  def allExamples = dependsOn.findall {
+  def allExamples = dependsOn.findAll {
       it instanceof ExampleTask && it.didWork
   }
 
-  def t0 = new Date().getTime()
-  GParsPool.withPool 1, {
-    allExamples.eachParallel { e ->
-      println("Serialize ${e.example.path}")
-      serializeJson(e.instance)
-      serializeXml(e.instance)
-    } 
-  }
-  def t1 = new Date().getTime()
-  GParsPool.withPool 2, {
-    allExamples.eachParallel { e ->
-      println("Serialize ${e.example.path}")
-      serializeJson(e.instance)
-      serializeXml(e.instance)
-    } 
-  }
-  def t2 = new Date().getTime()
+  allExamples.each { e ->
 
-  println("With 1 thread:  " + (t1-t0))
-  println("With 2 threads: " + (t2-t1))
+    println("Serialize ${e.example.path}")
+
+    def json = serializeJson(e.instance)
+    writeFile(e.outputFileBase+".json", json)
+
+    def xml = serializeXml(e.instance)
+    writeFile(e.outputFileBase+".xml", xml)
+
+    String html = Rythm.render("example.html.rythm", [
+      resource: e.resource.name,
+      exampleId: e.example.id ?: "example",
+      xml: xml,
+      json: json
+    ])
+    writeFile(e.outputFileBase+".html", html)
+
+  } 
 }
 
 def resources(){
@@ -265,5 +218,62 @@ def resources(){
   println("deltat: " + (t1-t0))
 }
 
+task publish
+publish.dependsOn generateResources
+publish.dependsOn generateExamples
+
+// Below this line is pure glue to the FHIR build tool
 preparePub()
 createTasks()
+AtomFeed makeFeed(String idSlug, String selfSlug, String title) {
+  def feed = new AtomFeed();
+  feed.setId("http://hl7.org/fhir/profile/$idSlug");
+  feed.setTitle(title);
+  feed.links["self"] = "http://hl7.org/implement/standards/fhir/${selfSlug}.xml";
+  feed.setUpdated(Calendar.instance);
+  return feed
+}
+
+def preparePub(){
+  pub.initialize(fhirBuildDir)
+  page = pub.page
+ 
+  page.breadCrumbManager.parse(page.folders.srcDir+"heirarchy.xml");
+  pub.prsr.parse(pub.page.genDate, pub.page.version);
+  pub.defineSpecialValues();
+  pub.validate()
+  page.navigation = new Navigation();
+  page.navigation.parse(page.folders.srcDir + "navigation.xml");
+
+  pub.profileFeed = makeFeed(
+        "resources",
+        "profiles-resources",
+        "Resources as Profiles")
+
+  pub.typeFeed = makeFeed(
+        "types",
+        "profiles-types",
+        "Resources as Profiles")
+
+  pub.valueSetsFeed = makeFeed(
+        "valuesets",
+        "valuesets",
+        "FHIR Core Valuesets")
+
+  pub.loadValueSets()
+  page.metaClass.resources = page.definitions.resources.collect {k,v->v}
+  return pub
+}
+
+
+def serializeJson(r) {
+    ByteArrayOutputStream jsonStream = new ByteArrayOutputStream()
+    new JsonComposer().compose(jsonStream, r, true)
+    jsonStream.toString()
+}
+
+def serializeXml(r) {
+    ByteArrayOutputStream xmlStream = new ByteArrayOutputStream()
+    new XmlComposer().compose(xmlStream, r, true)
+    xmlStream.toString()
+}

@@ -1,9 +1,14 @@
-@args String who
-<html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
 <head>
-<title>Hello world from Rythm</title>
+ <title>Example Instance for @resourceType</title>
+ <link rel="stylesheet" href="fhir.css" type="text/css" media="screen"/>
 </head>
 <body>
-<h1>Hello @who</h1>
+<div class="example">
+<p>General @resourceType Example (id = @exampleId)</p>
+<p><a href="@(exampleId).xml">Raw XML</a></p>
+<pre class="xml"></pre>
+</div>
 </body>
 </html>
+
