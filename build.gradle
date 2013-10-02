@@ -1,38 +1,126 @@
-import org.eclipse.emf.ecore.xmi.impl.XMIResourceImpl
-import org.hl7.fhir.tools.publisher.Publisher
-import org.hl7.fhir.instance.model.AtomFeed
-import org.hl7.fhir.definitions.model.ResourceDefn
-import org.hl7.fhir.tools.publisher.Navigation
-import org.hl7.fhir.utilities.CSFileInputStream
-
-
 buildscript  {
   repositories {
     mavenCentral()
   }
   dependencies {
     classpath group: 'org.codehaus.gpars', name: 'gpars', version: '1.1.0'
+    classpath group: 'org.rythmengine', name: 'rythm-engine', version: '1.0-b9'
+            
   }
 }
 
+import java.io.InputStream
+import java.io.FileInputStream
+import org.eclipse.emf.ecore.xmi.impl.XMIResourceImpl
+import org.hl7.fhir.tools.publisher.Publisher
+import org.hl7.fhir.instance.model.AtomFeed
+import org.hl7.fhir.definitions.model.ResourceDefn
+import org.hl7.fhir.tools.publisher.Navigation
+import org.hl7.fhir.utilities.CSFileInputStream
+import org.hl7.fhir.definitions.model.Example.ExampleType
+import org.hl7.fhir.instance.formats.XmlParser
+import org.hl7.fhir.instance.formats.JsonComposer
+import org.hl7.fhir.instance.formats.XmlComposer
+import org.gradle.api.DefaultTask
+import org.gradle.api.tasks.TaskAction
 import groovyx.gpars.GParsPool
+import org.rythmengine.Rythm
+
+
+Rythm.init(["home.template": project.file("templates")]);
+println Rythm.render("hello-world.html.rythm", [who:"rythmatic",are:"user"])
 
 ext {
-  folder = fhirBuildDir
-  pub = new Publisher();
-  page = null;
+  fhirBuildDir = fhirBuildDir
+  pub = new Publisher()
+  page = null
   destDir = ""
+}
+
+def serializeJson(r) {
+    ByteArrayOutputStream jsonStream = new ByteArrayOutputStream()
+    new JsonComposer().compose(jsonStream, r, true)
+    jsonStream.toString()
+}
+
+
+def serializeXml(r) {
+    ByteArrayOutputStream xmlStream = new ByteArrayOutputStream()
+    new XmlComposer().compose(xmlStream, r, true)
+    xmlStream.toString()
+}
+
+class ResourceTask extends DefaultTask {
+    def resource = null
+    def getSourceDir() {"$project.fhirBuildDir/source/${resource.name.toLowerCase()}"}
+    def getOutputFiles() {"$project.fhirBuildDir/publish/${resource.name.toLowerCase()}.htm"}
+
+    @InputFiles def getResourceDir(){
+      project.fileTree(this.sourceDir)
+    }
+
+    @TaskAction def act(){
+      didWork = true
+    }
+}
+
+class ExampleTask extends DefaultTask {
+    def resource = null
+    def example = null
+
+    def parseXml(InputStream is) {
+        def instance = new XmlParser().parseGeneral(is)
+        return instance.resource ?: instance.feed
+    }
+
+    def getInstance(){
+       parseXml(new FileInputStream(example.path))
+    }
+
+    @InputFile def getResourceDir(){
+      project.file(example.path)
+    }
+
+    @TaskAction def act(){
+      didWork = true
+    }
+}
+
+def createTasks() {
+
+  // For each resource, create a tracking task
+  page.resources.each{ r ->
+    generateResources.dependsOn task("resource-${r.name}", type: ResourceTask) {
+      println("Defining task for resource ${r.name}")
+      resource = r
+      println "$outputFiles"
+      outputs.files(outputFiles)
+    }
+  }
+
+
+  // For each example file belonging to each resource
+  // create a tracking task
+  page.resources.each { r ->
+    r.examples.findAll {
+		 it.type == ExampleType.XmlFile
+    }.each { e ->
+      generateExamples.dependsOn task("example-${r.name}-${e.name}", type: ExampleTask){
+        resource = r
+        example = e
+      }
+    }
+  }
+
 }
 
 task generateNewSource << {
   println("tracer top build")
-  genSource()
-
+  generateSource()
   ant.copy(todir: new File(projectDir, "/buildSrc/src/main/java/org/hl7/fhir/instance/")) {
-    fileset(dir:folder+"/implementations/java/org.hl7.fhir.instance/src/org/hl7/fhir/instance") {
+    fileset(dir:fhirBuildDir+"/implementations/java/org.hl7.fhir.instance/src/org/hl7/fhir/instance") {
             exclude(name: "**/client/")
-            exclude(name: "**/test/FHIR*")
-    }
+            exclude(name: "**/test/FHIR*") }
 
   }
   println("Executed!")
@@ -54,10 +142,7 @@ task generateDocsReal << {
 
 generateDocs.dependsOn generateNewSource
 
-def genSource(){
-
-  preparePub()
-
+def generateSource(){
   pub.registerReferencePlatforms();
   def eCorePath = pub.page.folders.dstDir + "ECoreDefinitions.xml";
   pub.generateECore(pub.prsr.eCoreParseResults, eCorePath);
@@ -86,7 +171,7 @@ AtomFeed makeFeed(String idSlug, String selfSlug, String title) {
 }
 
 def preparePub(){
-  pub.initialize(folder)
+  pub.initialize(fhirBuildDir)
   page = pub.page
   destDir = pub.page.folders.dstDir;
  
@@ -113,28 +198,57 @@ def preparePub(){
         "FHIR Core Valuesets")
 
   pub.loadValueSets()
- 
+  page.metaClass.resources = page.definitions.resources.collect {k,v->v}
   return pub
 }
 
 task generateResources << {
-  resources()
+  if (dependsOnTaskDidWork())
+    resources()
+}
+
+
+
+task generateExamples << {
+
+  def allExamples = dependsOn.findall {
+      it instanceof ExampleTask && it.didWork
+  }
+
+  def t0 = new Date().getTime()
+  GParsPool.withPool 1, {
+    allExamples.eachParallel { e ->
+      println("Serialize ${e.example.path}")
+      serializeJson(e.instance)
+      serializeXml(e.instance)
+    } 
+  }
+  def t1 = new Date().getTime()
+  GParsPool.withPool 2, {
+    allExamples.eachParallel { e ->
+      println("Serialize ${e.example.path}")
+      serializeJson(e.instance)
+      serializeXml(e.instance)
+    } 
+  }
+  def t2 = new Date().getTime()
+
+  println("With 1 thread:  " + (t1-t0))
+  println("With 2 threads: " + (t2-t1))
 }
 
 def resources(){
-  preparePub()
   println("Doing e resources: " + page.definitions.sortedResourceNames())
 
-  def rNames = page.definitions.sortedResourceNames().findAll {
+  def rs = page.definitions.sortedResourceNames().findAll {
     it != "ValueSet"
   } collect {
     page.definitions.resources[it]
   }
 
-
   def t0 = new Date().getTime()
   GParsPool.withPool 2, {
-    rNames.each { r -> 
+    rs.each { r -> 
       println ("R1 resource: $r.name")
       pub.produceResource1(r);      
     }
@@ -142,11 +256,14 @@ def resources(){
 
   pub.produceBaseProfile()
   GParsPool.withPool 2, {
-    rNames.eachParallel { r -> 
-	println ("R2 resource: $r.name")
-	pub.produceResource2(r);      
+    rs.eachParallel { r -> 
+      println ("R2 resource: $r.name")
+      pub.produceResource2(r);      
     }
   }
   def t1 = new Date().getTime()
   println("deltat: " + (t1-t0))
 }
+
+preparePub()
+createTasks()

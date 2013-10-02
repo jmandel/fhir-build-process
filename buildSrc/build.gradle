@@ -1,11 +1,9 @@
 apply plugin: 'java'
 
-build << { 
-    println "TRACER: hello from buildSrc java build"
-}
-
 repositories {
-     mavenRepo url: "http://repo.maven.apache.org/maven2"
+     maven {
+	 url = "http://repo.maven.apache.org/maven2"
+     }
 }
 
 dependencies {
